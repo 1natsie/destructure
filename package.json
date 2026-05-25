@@ -26,16 +26,16 @@
   ],
   "exports": {
     "./decode": {
-      "import": "./dist/decoder.js",
-      "types": "./dist/decoder.d.ts"
+      "import": "./dist/decoder/decoder.js",
+      "types": "./dist/decoder/decoder.d.ts"
     },
     "./encode": {
-      "import": "./dist/encoder.js",
-      "types": "./dist/encoder.d.ts"
+      "import": "./dist/encoder/encoder.js",
+      "types": "./dist/encoder/encoder.d.ts"
     },
     "./schema": {
-      "import": "./dist/schema.js",
-      "types": "./dist/schema.d.ts"
+      "import": "./dist/schema/schema.js",
+      "types": "./dist/schema/schema.d.ts"
     }
   },
   "devDependencies": {
