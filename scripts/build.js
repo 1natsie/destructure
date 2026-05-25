@@ -34,17 +34,15 @@ const runTsc = async () => {
 };
 
 export const buildOnce = async () => {
-  console.log(`Starting build process...\n`);
+  console.log(`Starting build process.`);
 
-  console.log(`Ensuring that "dist" exists.\n`);
+  console.log(`Cleaning up previous build artefacts.`);
+  await rm("./dist", { recursive: true, force: true });
+
+  console.log(`Creating dist directory.`);
   await mkdir("./dist", { recursive: true });
 
-  const dtsFiles = await Array.fromAsync(glob("dist/**/*.{js,d.ts}*"));
-
-  console.log(`Removing ${dtsFiles.length} previous build artefacts.\n`);
-  await Promise.all(dtsFiles.map((filePath) => rm(filePath, { force: true })));
-
-  console.log(`Building with ${hasTsgo ? "tsgo" : "tsc"}...\n`);
+  console.log(`Building with ${hasTsgo ? "tsgo" : "tsc"}.`);
   const startTime = performance.now();
   await (hasTsgo ? runTsgo() : runTsc());
 

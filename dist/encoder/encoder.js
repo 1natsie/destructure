@@ -1,5 +1,5 @@
 import { SchemaType, schema as _schema, } from "../schema/schema.js";
-import { createGrowingBuffer, coder, getStringCodePoints } from "../utils/utils.js";
+import { createGrowingBuffer, getStringCodePoints } from "../utils/utils.js";
 const dvMethodMap = {
     u8: DataView.prototype.setUint8,
     u16: DataView.prototype.setUint16,
@@ -12,7 +12,7 @@ const dvMethodMap = {
 };
 export const encode = (schema, data) => {
     const buffer = createGrowingBuffer();
-    const stack = [[_schema.compile(schema), data, {}]];
+    const stack = [[_schema(schema), data, {}]];
     while (stack.length) {
         const [schema, payload, data] = stack.pop();
         switch (schema.type) {

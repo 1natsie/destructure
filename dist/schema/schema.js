@@ -1,5 +1,5 @@
-import { destructureSimpleSchema, getStringCodePoints, PRIMITIVE_TYPES_ARRAY, sortObjectEntries, textDecoder, textEncoder, } from "../utils/utils.js";
-export const SchemaType = {
+import { coder, destructureSimpleSchema, PRIMITIVE_TYPES_ARRAY, sortObjectEntries, textDecoder, textEncoder, } from "../utils/utils.js";
+const SchemaType = {
     Null: -1,
     Simple: 0,
     Object: 1,
@@ -8,35 +8,52 @@ export const SchemaType = {
     Optional: 4,
     Custom: 5,
 };
-export const optionalSchemaKey = Symbol.for(crypto.randomUUID());
+const optionalSchemaKey = Symbol("optionalSchema");
+const schemaSourceKey = Symbol("schemaSource");
 const schemaMap = new Map();
 const schemaSet = new Set();
-const customSchema = new Set();
-export const schema = (value) => value;
-schema.compile = (value) => {
+schemaMap.set(null, Object.freeze({ type: SchemaType.Null, [schemaSourceKey]: null }));
+const isCompiledSchema = (value) => schemaSet.has(value);
+const isCustomSchema = (value) => {
+    return schemaMap.get(value)?.type === SchemaType.Custom;
+};
+const schema = (value) => compileSchema(value);
+const source = (value) => value[schemaSourceKey];
+const compileSchema = (value) => {
     if (schemaMap.has(value))
         return schemaMap.get(value);
-    if (schemaSet.has(value))
+    if (isCompiledSchema(value))
         return value;
+    if (isCustomSchema(value))
+        return schemaMap.get(value);
     let compiled;
     if (value === null)
-        compiled = { type: SchemaType.Null };
-    else if (isCustomSchema(value))
-        compiled = { type: SchemaType.Custom, handler: value };
+        compiled = schemaMap.get(null);
     else if (typeof value === "string") {
         const ds = destructureSimpleSchema(value);
         compiled = ds.isArray
             ? {
                 type: SchemaType.Array,
-                schema: { type: SchemaType.Simple, base: ds.base, byteLength: ds.byteLength },
+                [schemaSourceKey]: value,
+                schema: {
+                    type: SchemaType.Simple,
+                    [schemaSourceKey]: ds.base,
+                    base: ds.base,
+                    byteLength: ds.byteLength,
+                },
                 count: ds.arrayLength,
             }
-            : { type: SchemaType.Simple, base: ds.base, byteLength: ds.byteLength };
+            : {
+                type: SchemaType.Simple,
+                [schemaSourceKey]: value,
+                base: ds.base,
+                byteLength: ds.byteLength,
+            };
     }
     else if (typeof value === "object") {
         compiled = Array.isArray(value)
-            ? { type: SchemaType.Tuple, entries: [] }
-            : { type: SchemaType.Object, entries: [] };
+            ? { type: SchemaType.Tuple, [schemaSourceKey]: value, entries: [] }
+            : { type: SchemaType.Object, [schemaSourceKey]: value, entries: [] };
         const stack = Array.isArray(value)
             ? value.map((s) => [compiled, null, s]).reverse()
             : sortObjectEntries(Object.entries(value))
@@ -45,20 +62,22 @@ schema.compile = (value) => {
         while (stack.length) {
             const [parent, key, value] = stack.pop();
             let compiled;
-            if (schemaMap.has(value))
+            if (isCompiledSchema(value))
+                compiled = value;
+            else if (schemaMap.has(value))
                 compiled = schemaMap.get(value);
             else if (typeof value === "string")
-                compiled = schema.compile(value);
+                compiled = compileSchema(value);
             else if (value === null)
-                compiled = schema.compile(value);
+                compiled = compileSchema(value);
             else if (isCustomSchema(value))
-                compiled = schema.compile(value);
+                compiled = compileSchema(value);
             else if (Array.isArray(value)) {
-                compiled = { type: SchemaType.Tuple, entries: [] };
+                compiled = { type: SchemaType.Tuple, [schemaSourceKey]: value, entries: [] };
                 stack.push(...value.map((s) => [compiled, null, s]).reverse());
             }
             else if (typeof value === "object") {
-                compiled = { type: SchemaType.Object, entries: [] };
+                compiled = { type: SchemaType.Object, [schemaSourceKey]: value, entries: [] };
                 stack.push(...sortObjectEntries(Object.entries(value))
                     .map((s) => [compiled, s[0], s[1]])
                     .reverse());
@@ -73,46 +92,52 @@ schema.compile = (value) => {
     }
     else
         throw new Error("Invalid schema.");
+    Object.freeze(compiled);
     schemaMap.set(value, compiled);
     schemaSet.add(compiled);
     return compiled;
 };
-export const array = (value, count = -1) => {
-    const compiled = { type: SchemaType.Array, schema: schema.compile(value), count };
+const array = (value, count = -1) => {
+    const compiled = {
+        type: SchemaType.Array,
+        [schemaSourceKey]: value,
+        schema: compileSchema(value),
+        count,
+    };
     const placeholderSchema = [];
+    Object.freeze(compiled);
     schemaMap.set(placeholderSchema, compiled);
     schemaSet.add(compiled);
     return placeholderSchema;
 };
-export const optional = (value) => {
+const optional = (value) => {
     const placeholderSchema = { [optionalSchemaKey]: true, schema: value };
-    const compiled = { type: SchemaType.Optional, schema: schema.compile(value) };
+    const compiled = Object.freeze({
+        type: SchemaType.Optional,
+        [schemaSourceKey]: value,
+        schema: compileSchema(value),
+    });
     schemaMap.set(placeholderSchema, compiled);
     schemaSet.add(compiled);
     return placeholderSchema;
 };
-export const custom = (handler) => {
-    if (!(handler.encode &&
-        typeof handler.encode === "function" &&
-        handler.decode &&
-        typeof handler.decode === "function" &&
-        handler.size &&
-        typeof handler.size === "function"))
+const custom = (handler) => {
+    if (!(typeof handler?.encode === "function" &&
+        typeof handler?.decode === "function" &&
+        typeof handler?.size === "function" &&
+        ("encodeInto" in handler ? typeof handler.encodeInto === "function" : true)))
         throw new Error("Invalid custom schema handler.");
-    const compiled = { type: SchemaType.Custom, handler };
-    schemaMap.set(handler, compiled);
-    customSchema.add(handler);
+    schemaMap.set(handler, Object.freeze({ type: SchemaType.Custom, [schemaSourceKey]: handler, handler }));
     return handler;
 };
-export const string = custom({
+const string = custom({
     encode: (value) => {
         const encoded = textEncoder.encode(value);
         if (encoded.length > 2 ** 32 - 1)
             throw new RangeError("Input length exceeds limit.");
         const result = new Uint8Array(encoded.length + 4);
-        const view = new DataView(result.buffer);
         result.set(encoded, 4);
-        view.setUint32(0, encoded.length, true);
+        result.set(coder.encodeNumber(encoded.length), 0);
         return result;
     },
     decode: (bytes, offset) => {
@@ -135,8 +160,6 @@ export const string = custom({
     },
     size: () => ({ value: 4, isVariable: true }),
 });
-export const isCustomSchema = (value) => {
-    return customSchema.has(value);
-};
 PRIMITIVE_TYPES_ARRAY.map(schema); // Precompile schemas
+export { array, custom, isCustomSchema, optional, schema, SchemaType, source, string };
 //# sourceMappingURL=schema.js.map

@@ -1,14 +1,16 @@
 import {
+  coder,
   destructureSimpleSchema,
-  getStringCodePoints,
   PRIMITIVE_TYPES_ARRAY,
   sortObjectEntries,
   textDecoder,
   textEncoder,
 } from "../utils/utils.ts";
-import type { Compiled, CustomSchemaHandler, OptionalSchema, Schema } from "./types.ts";
+import type { CompiledSchema, CustomSchemaHandler, OptionalSchema, Schema } from "./types.ts";
 
-export const SchemaType = {
+type CSchema<T extends Schema = Schema> = CompiledSchema<T>;
+
+const SchemaType = {
   Null: -1,
   Simple: 0,
   Object: 1,
@@ -18,38 +20,53 @@ export const SchemaType = {
   Custom: 5,
 } as const;
 
-export const optionalSchemaKey = Symbol.for(crypto.randomUUID());
+const optionalSchemaKey = Symbol("optionalSchema");
+const schemaSourceKey = Symbol("schemaSource");
 
-const schemaMap: Map<Schema, Compiled["Schema"]> = new Map();
-const schemaSet: Set<Compiled["Schema"]> = new Set();
-const customSchema: Set<CustomSchemaHandler> = new Set();
+const schemaMap: Map<Schema, CompiledSchema> = new Map();
+const schemaSet: Set<CompiledSchema> = new Set();
+schemaMap.set(null, Object.freeze({ type: SchemaType.Null, [schemaSourceKey]: null }));
 
-export const schema: {
-  <T extends Schema>(value: T): T;
-  compile: (value: Schema | Compiled["Schema"]) => Compiled["Schema"];
-} = (value) => value;
-schema.compile = (value: Schema | Compiled["Schema"]): Compiled["Schema"] => {
-  if (schemaMap.has(value as Schema)) return schemaMap.get(value as Schema)!;
-  if (schemaSet.has(value as Compiled["Schema"])) return value as Compiled["Schema"];
-  let compiled: Compiled["Schema"];
+const isCompiledSchema = (value: unknown): value is CSchema => schemaSet.has(value as CSchema);
+const isCustomSchema = (value: unknown): value is CustomSchemaHandler => {
+  return schemaMap.get(value as CustomSchemaHandler)?.type === SchemaType.Custom;
+};
 
-  if (value === null) compiled = { type: SchemaType.Null };
-  else if (isCustomSchema(value)) compiled = { type: SchemaType.Custom, handler: value };
+const schema = <T extends Schema>(value: T | CSchema<T>): CSchema<T> => compileSchema(value);
+const source = <T extends Schema>(value: CSchema<T>): T => value[schemaSourceKey];
+const compileSchema = <T extends Schema>(value: T | CSchema<T>): CSchema<T> => {
+  if (schemaMap.has(value as Schema)) return schemaMap.get(value as Schema) as CompiledSchema<T>;
+  if (isCompiledSchema(value)) return value as CompiledSchema<T>;
+  if (isCustomSchema(value)) return schemaMap.get(value as CustomSchemaHandler) as CSchema<T>;
+  let compiled: CompiledSchema<T>;
+
+  if (value === null) compiled = schemaMap.get(null) as CompiledSchema<T>;
   else if (typeof value === "string") {
     const ds = destructureSimpleSchema(value);
     compiled = ds.isArray
       ? {
           type: SchemaType.Array,
-          schema: { type: SchemaType.Simple, base: ds.base, byteLength: ds.byteLength },
+          [schemaSourceKey]: value,
+          schema: {
+            type: SchemaType.Simple,
+            [schemaSourceKey]: ds.base,
+            base: ds.base,
+            byteLength: ds.byteLength,
+          },
           count: ds.arrayLength,
         }
-      : { type: SchemaType.Simple, base: ds.base, byteLength: ds.byteLength };
+      : {
+          type: SchemaType.Simple,
+          [schemaSourceKey]: value,
+          base: ds.base,
+          byteLength: ds.byteLength,
+        };
   } else if (typeof value === "object") {
-    type StackEntry = [Compiled["Schema"], string | null, Schema];
+    type StackEntry = [CompiledSchema, string | null, Schema];
 
     compiled = Array.isArray(value)
-      ? { type: SchemaType.Tuple, entries: [] }
-      : { type: SchemaType.Object, entries: [] };
+      ? { type: SchemaType.Tuple, [schemaSourceKey]: value, entries: [] }
+      : { type: SchemaType.Object, [schemaSourceKey]: value, entries: [] };
     const stack: StackEntry[] = Array.isArray(value)
       ? value.map<StackEntry>((s) => [compiled, null, s]).reverse()
       : sortObjectEntries(Object.entries(value))
@@ -58,17 +75,18 @@ schema.compile = (value: Schema | Compiled["Schema"]): Compiled["Schema"] => {
 
     while (stack.length) {
       const [parent, key, value] = stack.pop()!;
-      let compiled: Compiled["Schema"];
+      let compiled: CompiledSchema;
 
-      if (schemaMap.has(value)) compiled = schemaMap.get(value)!;
-      else if (typeof value === "string") compiled = schema.compile(value);
-      else if (value === null) compiled = schema.compile(value);
-      else if (isCustomSchema(value)) compiled = schema.compile(value);
+      if (isCompiledSchema(value)) compiled = value;
+      else if (schemaMap.has(value)) compiled = schemaMap.get(value)!;
+      else if (typeof value === "string") compiled = compileSchema(value);
+      else if (value === null) compiled = compileSchema(value);
+      else if (isCustomSchema(value)) compiled = compileSchema(value);
       else if (Array.isArray(value)) {
-        compiled = { type: SchemaType.Tuple, entries: [] };
+        compiled = { type: SchemaType.Tuple, [schemaSourceKey]: value, entries: [] };
         stack.push(...value.map<StackEntry>((s) => [compiled, null, s]).reverse());
       } else if (typeof value === "object") {
-        compiled = { type: SchemaType.Object, entries: [] };
+        compiled = { type: SchemaType.Object, [schemaSourceKey]: value, entries: [] };
         stack.push(
           ...sortObjectEntries(Object.entries(value))
             .map<StackEntry>((s) => [compiled, s[0], s[1]])
@@ -81,58 +99,67 @@ schema.compile = (value: Schema | Compiled["Schema"]): Compiled["Schema"] => {
     }
   } else throw new Error("Invalid schema.");
 
+  Object.freeze(compiled);
   schemaMap.set(value as Schema, compiled);
   schemaSet.add(compiled);
   return compiled;
 };
 
-export const array = <T extends Schema>(value: T, count: number = -1): T[] => {
-  const compiled = { type: SchemaType.Array, schema: schema.compile(value), count };
+const array = <T extends Schema>(value: T, count: number = -1): T[] => {
+  const compiled = {
+    type: SchemaType.Array,
+    [schemaSourceKey]: value,
+    schema: compileSchema(value),
+    count,
+  };
   const placeholderSchema: T[] = [];
 
+  Object.freeze(compiled);
   schemaMap.set(placeholderSchema, compiled);
   schemaSet.add(compiled);
   return placeholderSchema;
 };
 
-export const optional = <T extends Schema>(value: T): OptionalSchema<T> => {
+const optional = <T extends Schema>(value: T): OptionalSchema<T> => {
   const placeholderSchema: OptionalSchema<T> = { [optionalSchemaKey]: true, schema: value };
-  const compiled = { type: SchemaType.Optional, schema: schema.compile(value) };
+  const compiled = Object.freeze({
+    type: SchemaType.Optional,
+    [schemaSourceKey]: value,
+    schema: compileSchema(value),
+  });
 
   schemaMap.set(placeholderSchema, compiled);
   schemaSet.add(compiled);
   return placeholderSchema;
 };
 
-export const custom = <T>(handler: CustomSchemaHandler<T>): CustomSchemaHandler<T> => {
+const custom = <T>(handler: CustomSchemaHandler<T>): CustomSchemaHandler<T> => {
   if (
     !(
-      handler.encode &&
-      typeof handler.encode === "function" &&
-      handler.decode &&
-      typeof handler.decode === "function" &&
-      handler.size &&
-      typeof handler.size === "function"
+      typeof handler?.encode === "function" &&
+      typeof handler?.decode === "function" &&
+      typeof handler?.size === "function" &&
+      ("encodeInto" in handler ? typeof handler.encodeInto === "function" : true)
     )
   )
     throw new Error("Invalid custom schema handler.");
 
-  const compiled: Compiled["Custom"] = { type: SchemaType.Custom, handler };
-  schemaMap.set(handler, compiled);
-  customSchema.add(handler);
+  schemaMap.set(
+    handler,
+    Object.freeze({ type: SchemaType.Custom, [schemaSourceKey]: handler, handler }),
+  );
   return handler;
 };
 
-export const string = custom<string>({
+const string: CustomSchemaHandler<string> = custom<string>({
   encode: (value) => {
     const encoded = textEncoder.encode(value);
     if (encoded.length > 2 ** 32 - 1) throw new RangeError("Input length exceeds limit.");
 
     const result = new Uint8Array(encoded.length + 4);
-    const view = new DataView(result.buffer);
 
     result.set(encoded, 4);
-    view.setUint32(0, encoded.length, true);
+    result.set(coder.encodeNumber(encoded.length), 0);
 
     return result;
   },
@@ -158,10 +185,8 @@ export const string = custom<string>({
   size: () => ({ value: 4, isVariable: true }),
 });
 
-export const isCustomSchema = (value: unknown): value is CustomSchemaHandler => {
-  return customSchema.has(value as CustomSchemaHandler);
-};
-
 PRIMITIVE_TYPES_ARRAY.map(schema); // Precompile schemas
 
 export type * from "./types.ts";
+export { array, custom, isCustomSchema, optional, schema, SchemaType, source, string };
+export type { optionalSchemaKey, schemaSourceKey };

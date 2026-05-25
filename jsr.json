@@ -1,0 +1,11 @@
+{
+  "$schema": "https://jsr.io/schema/config-file.v1.json",
+  "name": "@1natsie/destructure",
+  "version": "0.0.1-alpha.0",
+  "license": "MIT",
+  "exports": {
+    "./decode": "./src/decoder/decoder.ts",
+    "./encode": "./src/encoder/encoder.ts",
+    "./schema": "./src/schema/schema.ts"
+  }
+}

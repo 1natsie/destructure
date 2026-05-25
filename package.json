@@ -1,6 +1,6 @@
 {
   "name": "destructure",
-  "version": "0.0.0-alpha0",
+  "version": "0.0.1-alpha.0",
   "description": "A library for serialisation and deserialisation of structured data.",
   "homepage": "https://github.com/1natsie/destructure#readme",
   "author": "Oghenevwegba Obire",
@@ -18,6 +18,12 @@
     "build:watch": "node ./scripts/build-watch.js",
     "dev": "node ./scripts/dev.js"
   },
+  "files": [
+    "dist/",
+    "package.json",
+    "LICENSE",
+    "README.md"
+  ],
   "exports": {
     "./decode": {
       "import": "./dist/decoder.js",
@@ -27,23 +33,16 @@
       "import": "./dist/encoder.js",
       "types": "./dist/encoder.d.ts"
     },
-    "./struct": {
-      "import": "./dist/struct.js",
-      "types": "./dist/struct.d.ts"
+    "./schema": {
+      "import": "./dist/schema.js",
+      "types": "./dist/schema.d.ts"
     }
   },
   "devDependencies": {
-    "@types/bun": "^1.3.14",
     "@types/node": "^25.7.0",
     "prettier": "^3.8.3",
     "typescript": "^6.0.3"
   },
-  "files": [
-    "dist/",
-    "package.json",
-    "LICENSE",
-    "README.md"
-  ],
   "bugs": {
     "url": "https://github.com/1natsie/destructure/issues"
   },

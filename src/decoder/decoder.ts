@@ -1,7 +1,7 @@
 import {
   schema as _schema,
   SchemaType,
-  type Compiled,
+  type CompiledSchema,
   type Data,
   type Schema,
 } from "../schema/schema.ts";
@@ -25,8 +25,8 @@ export const decode = <T extends Schema>(
   type ObjectQueueEntry = ["object", Record<string, any>, string];
   type ArrayQueueEntry = ["array", any[]];
   interface DecoderState {
-    stack: Compiled["Schema"][];
-    stackData: WeakMap<Exclude<Compiled["Schema"], string>, Record<string, any>>;
+    stack: CompiledSchema[];
+    stackData: WeakMap<Exclude<CompiledSchema, string>, Record<string, any>>;
     processingQueue: (ObjectQueueEntry | ArrayQueueEntry)[];
     offset: number;
     result: any;
@@ -38,7 +38,7 @@ export const decode = <T extends Schema>(
   };
   const view = bytes.view;
   const state: DecoderState = {
-    stack: [_schema.compile(schema)],
+    stack: [_schema(schema)],
     stackData: new WeakMap(),
     processingQueue: [],
     offset: offset,

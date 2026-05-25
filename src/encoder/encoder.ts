@@ -1,11 +1,11 @@
 import {
-  type Compiled,
+  type CompiledSchema,
   type Data,
   type Schema,
   SchemaType,
   schema as _schema,
 } from "../schema/schema.ts";
-import { createGrowingBuffer, coder, getStringCodePoints } from "../utils/utils.ts";
+import { createGrowingBuffer, getStringCodePoints } from "../utils/utils.ts";
 
 const dvMethodMap = {
   u8: DataView.prototype.setUint8,
@@ -18,11 +18,14 @@ const dvMethodMap = {
   f64: DataView.prototype.setFloat64,
 };
 
-export const encode = <T extends Schema>(schema: T, data: Data<T>): Uint8Array<ArrayBuffer> => {
-  type StackEntry = [schema: Compiled["Schema"], payload: any, data: Record<string, any>];
+export const encode = <T extends Schema>(
+  schema: T | CompiledSchema<T>,
+  data: Data<T>,
+): Uint8Array<ArrayBuffer> => {
+  type StackEntry = [schema: CompiledSchema, payload: any, data: Record<string, any>];
 
   const buffer = createGrowingBuffer();
-  const stack: StackEntry[] = [[_schema.compile(schema), data, {}]];
+  const stack: StackEntry[] = [[_schema(schema), data, {}]];
 
   while (stack.length) {
     const [schema, payload, data] = stack.pop()!;

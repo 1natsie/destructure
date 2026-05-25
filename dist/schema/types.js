@@ -1,2 +1,2 @@
-import { optionalSchemaKey } from "./schema.js";
+export {};
 //# sourceMappingURL=types.js.map

@@ -16,7 +16,7 @@ export const decode = (schema, buffer, offset = 0) => {
     };
     const view = bytes.view;
     const state = {
-        stack: [_schema.compile(schema)],
+        stack: [_schema(schema)],
         stackData: new WeakMap(),
         processingQueue: [],
         offset: offset,

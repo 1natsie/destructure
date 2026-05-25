@@ -1,5 +1,6 @@
-import type { Compiled, CustomSchemaHandler, Schema } from "./types.ts";
-export declare const SchemaType: {
+import type { CompiledSchema, CustomSchemaHandler, OptionalSchema, Schema } from "./types.ts";
+type CSchema<T extends Schema = Schema> = CompiledSchema<T>;
+declare const SchemaType: {
     readonly Null: -1;
     readonly Simple: 0;
     readonly Object: 1;
@@ -8,18 +9,16 @@ export declare const SchemaType: {
     readonly Optional: 4;
     readonly Custom: 5;
 };
-export declare const optionalSchemaKey: unique symbol;
-export declare const schema: {
-    <T extends Schema>(value: T): T;
-    compile: (value: Schema | Compiled["Schema"]) => Compiled["Schema"];
-};
-export declare const array: <T extends Schema>(value: T, count?: number) => T[];
-export declare const optional: <T extends Schema>(value: T) => Readonly<{
-    [optionalSchemaKey]: true;
-    schema: T;
-}>;
-export declare const custom: <T>(handler: CustomSchemaHandler<T>) => CustomSchemaHandler<T>;
-export declare const string: CustomSchemaHandler<string>;
-export declare const isCustomSchema: (value: unknown) => value is CustomSchemaHandler<any>;
+declare const optionalSchemaKey: unique symbol;
+declare const schemaSourceKey: unique symbol;
+declare const isCustomSchema: (value: unknown) => value is CustomSchemaHandler;
+declare const schema: <T extends Schema>(value: T | CSchema<T>) => CSchema<T>;
+declare const source: <T extends Schema>(value: CSchema<T>) => T;
+declare const array: <T extends Schema>(value: T, count?: number) => T[];
+declare const optional: <T extends Schema>(value: T) => OptionalSchema<T>;
+declare const custom: <T>(handler: CustomSchemaHandler<T>) => CustomSchemaHandler<T>;
+declare const string: CustomSchemaHandler<string>;
 export type * from "./types.ts";
+export { array, custom, isCustomSchema, optional, schema, SchemaType, source, string };
+export type { optionalSchemaKey, schemaSourceKey };
 //# sourceMappingURL=schema.d.ts.map

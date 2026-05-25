@@ -1,5 +1,5 @@
 import type { GrowingBuffer } from "../utils/utils.ts";
-import { optionalSchemaKey, type SchemaType as _SchemaTypeMap } from "./schema.ts";
+import type { SchemaType as _SchemaTypeMap, optionalSchemaKey, schemaSourceKey } from "./schema.ts";
 type KeysWithOptionalSchemas<T extends ObjectSchema> = {
     [K in keyof T]: T[K] extends OptionalSchema<Schema> ? K : never;
 }[keyof T];
@@ -17,38 +17,43 @@ export type PrimitiveTypeMap = {
 };
 export type SchemaTypeMap = typeof _SchemaTypeMap;
 export type SchemaType = SchemaTypeMap[keyof SchemaTypeMap];
-export interface Compiled {
-    Null: Readonly<{
-        type: SchemaTypeMap["Null"];
-    }>;
-    Simple: Readonly<{
-        type: SchemaTypeMap["Simple"];
-        base: PrimitiveType;
-        byteLength: number;
-    }>;
-    Object: Readonly<{
-        type: SchemaTypeMap["Object"];
-        entries: [string, Compiled["Schema"]][];
-    }>;
-    Tuple: Readonly<{
-        type: SchemaTypeMap["Tuple"];
-        entries: Compiled["Schema"][];
-    }>;
-    Array: Readonly<{
-        type: SchemaTypeMap["Array"];
-        schema: Compiled["Schema"];
-        count: number;
-    }>;
-    Optional: Readonly<{
-        type: SchemaTypeMap["Optional"];
-        schema: Compiled["Schema"];
-    }>;
-    Custom: Readonly<{
-        type: SchemaTypeMap["Custom"];
-        handler: CustomSchemaHandler;
-    }>;
-    Schema: Compiled["Null"] | Compiled["Simple"] | Compiled["Object"] | Compiled["Tuple"] | Compiled["Array"] | Compiled["Optional"] | Compiled["Custom"];
-}
+type CompiledNullSchema<T extends Schema> = Readonly<{
+    type: SchemaTypeMap["Null"];
+    [schemaSourceKey]: T;
+}>;
+type CompiledSimpleSchema<T extends Schema> = Readonly<{
+    type: SchemaTypeMap["Simple"];
+    [schemaSourceKey]: T;
+    base: PrimitiveType;
+    byteLength: number;
+}>;
+type CompiledObjectSchema<T extends Schema> = Readonly<{
+    type: SchemaTypeMap["Object"];
+    [schemaSourceKey]: T;
+    entries: [string, CompiledSchema][];
+}>;
+type CompiledTupleSchema<T extends Schema> = Readonly<{
+    type: SchemaTypeMap["Tuple"];
+    [schemaSourceKey]: T;
+    entries: CompiledSchema[];
+}>;
+type CompiledArraySchema<T extends Schema> = Readonly<{
+    type: SchemaTypeMap["Array"];
+    [schemaSourceKey]: T;
+    schema: CompiledSchema;
+    count: number;
+}>;
+type CompiledOptionalSchema<T extends Schema> = Readonly<{
+    type: SchemaTypeMap["Optional"];
+    [schemaSourceKey]: T;
+    schema: CompiledSchema;
+}>;
+type CompiledCustomSchema<T extends Schema> = Readonly<{
+    type: SchemaTypeMap["Custom"];
+    [schemaSourceKey]: T;
+    handler: CustomSchemaHandler;
+}>;
+export type CompiledSchema<T extends Schema = Schema> = CompiledNullSchema<T> | CompiledSimpleSchema<T> | CompiledObjectSchema<T> | CompiledTupleSchema<T> | CompiledArraySchema<T> | CompiledOptionalSchema<T> | CompiledCustomSchema<T>;
 export type StructDecodeResult<T> = {
     value: T;
     nextOffset: number;
@@ -76,7 +81,9 @@ export type OptionalSchema<T extends Schema> = Readonly<{
     schema: T;
 }>;
 export type NullSchema = null;
-export type Schema = NullSchema | SimpleSchema | ObjectSchema | TupleSchema | CustomSchemaHandler;
+export type Schema = NullSchema | SimpleSchema | ObjectSchema | TupleSchema | CustomSchemaHandler | {
+    [schemaSourceKey]: Schema;
+};
 type DecodePrimitive<T extends SimpleSchema> = T extends PrimitiveType ? PrimitiveTypeMap[T] : T extends `${infer PT extends PrimitiveType}[${number | ""}]` ? PrimitiveTypeMap[PT][] : never;
 type DecodeTuple<T extends Schema[], Collector extends unknown[] = []> = any[] extends T ? T extends (infer ST extends Schema)[] ? Data<ST>[] : never : T extends [infer Schm extends Schema, ...infer Rest extends Schema[]] ? DecodeTuple<Rest, [...Collector, Data<Schm>]> : Collector;
 type DecodeObject<T extends ObjectSchema> = {
@@ -84,6 +91,6 @@ type DecodeObject<T extends ObjectSchema> = {
 } & {
     [K in KeysWithOptionalSchemas<T>]?: Data<T[K]>;
 };
-export type Data<Schm extends Schema> = Schm extends NullSchema ? null : Schm extends OptionalSchema<infer T> ? Data<T> | undefined : Schm extends SimpleSchema ? DecodePrimitive<Schm> : Schm extends TupleSchema ? DecodeTuple<Schm> : Schm extends ObjectSchema ? DecodeObject<Schm> : Schm extends CustomSchemaHandler<infer CS> ? CS : never;
+export type Data<Schm extends Schema> = Schm extends NullSchema ? null : Schm extends OptionalSchema<infer T> ? Data<T> | undefined : Schm extends SimpleSchema ? DecodePrimitive<Schm> : Schm extends TupleSchema ? DecodeTuple<Schm> : Schm extends ObjectSchema ? DecodeObject<Schm> : Schm extends CustomSchemaHandler<infer CS> ? CS : Schm extends CompiledSchema<infer S> ? Data<S> : never;
 export {};
 //# sourceMappingURL=types.d.ts.map

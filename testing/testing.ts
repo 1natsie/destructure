@@ -1,15 +1,12 @@
-/// <reference types="node" />
-
-import { inspect } from "node:util";
-import { encode } from "./encoder/encoder.ts";
-import { array, optional, schema, string, type Data, type Schema } from "./schema/schema.ts";
-import { sortObjectEntries } from "./utils/utils.ts";
-import { decode } from "./decoder/decoder.ts";
+import { decode } from "../src/decoder/decoder.ts";
+import { encode } from "../src/encoder/encoder.ts";
+import { array, optional, schema, source, string, type Data } from "../src/schema/schema.ts";
+import { sortObjectEntries } from "../src/utils/utils.ts";
 
 const s = schema({ name: "char[9]", nested: { prop1: "u8", prop2: "i32" } });
 const z = schema({
   x: s,
-  y: { ...s, name: "char[8]" },
+  y: { ...source(s), name: "char[8]" },
   string: [string, array(string, 2)] as const,
   tuple: ["i8", "i8", { value: "f64" }] as const,
   array: array({ char: "char" }, 5),
@@ -60,12 +57,13 @@ const avg_timings = timings.reduce((acc, curr) => [acc[0] + curr[0], acc[1] + cu
 avg_timings[0] /= timings.length;
 avg_timings[1] /= timings.length;
 
-console.log(`
-Encoded Size: ${encoded.length}
-Decoded Match: ${getJSONString(data) === getJSONString(decoded)}
-Encoded Data: ${inspect(encoded)}
-Decoded Data: ${inspect(decoded)}
-Timings:
-  encoding: ${avg_timings[0]}
-  decoding: ${avg_timings[1]}
-`);
+console.log({
+  encodedSize: encoded.length,
+  decodedMatch: getJSONString(data) === getJSONString(decoded),
+  encodedData: encoded,
+  decodedData: decoded,
+  timings: {
+    encoding: avg_timings[0],
+    decoding: avg_timings[1],
+  },
+});
