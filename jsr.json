@@ -7,5 +7,8 @@
     "./decode": "./src/decoder/decoder.ts",
     "./encode": "./src/encoder/encoder.ts",
     "./schema": "./src/schema/schema.ts"
+  },
+  "publish": {
+    "include": ["LICENSE", "README.md", "src/**/*.ts"]
   }
 }
