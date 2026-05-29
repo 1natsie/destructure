@@ -64,9 +64,11 @@ console.log(decoded.username); // "johndoe"
 ### Main Entry Points
 
 #### `encode<T>(schema: T, data: Data.Input<T>): Uint8Array`
+
 Serialises data into a `Uint8Array` based on the provided schema.
 
 #### `decode<T>(schema: T, buffer: Uint8Array): Data.Output<T>`
+
 Deserialises a `Uint8Array` back into structured data based on the schema.
 
 ---
@@ -75,14 +77,15 @@ Deserialises a `Uint8Array` back into structured data based on the schema.
 
 The following primitive strings can be used in your schemas:
 
-| Type | Description | Byte Size |
-| :--- | :--- | :--- |
-| `u8`, `u16`, `u32` | Unsigned Integers (8, 16, 32 bit) | 1, 2, 4 |
-| `i8`, `i16`, `i32` | Signed Integers (8, 16, 32 bit) | 1, 2, 4 |
-| `f32`, `f64` | Floats (32, 64 bit) | 4, 8 |
-| `char` | Single ASCII/UTF-8 character | 1 |
+| Type               | Description                       | Byte Size |
+| :----------------- | :-------------------------------- | :-------- |
+| `u8`, `u16`, `u32` | Unsigned Integers (8, 16, 32 bit) | 1, 2, 4   |
+| `i8`, `i16`, `i32` | Signed Integers (8, 16, 32 bit)   | 1, 2, 4   |
+| `f32`, `f64`       | Floats (32, 64 bit)               | 4, 8      |
+| `char`             | Single ASCII/UTF-8 character      | 1         |
 
 Example:
+
 ```typescript
 const s = "u32";
 const s2 = "f64";
@@ -93,7 +96,9 @@ const s2 = "f64";
 ### Complex Schema Helpers
 
 #### `array(schema, count?)`
+
 Defines an array of a specific schema.
+
 - If `count` is omitted (or set to `-1`), the array is dynamic and prefixed with a 4-byte length.
 - If `count` is provided, the array is fixed-size.
 
@@ -107,6 +112,7 @@ const fixedSyntax = "u8[10]"; // Equivalent to array("u8", 10)
 ```
 
 #### `optional(schema)`
+
 Defines a field that may be `undefined`. Prefixed with a 1-byte boolean flag (0 or 1).
 
 ```typescript
@@ -119,7 +125,9 @@ const schema = {
 ```
 
 #### `string` and `string.nullTerminated`
+
 Handlers for string data.
+
 - `string`: Prefixed with a 4-byte length. Supports full UTF-8.
 - `string.nullTerminated`: C-style string ending in `\0`. No length prefix.
 
@@ -133,6 +141,7 @@ const schema = {
 ```
 
 #### `bytes`
+
 Handler for raw `Uint8Array` data. Prefixed with a 4-byte length.
 
 ```typescript
@@ -144,6 +153,7 @@ const schema = {
 ```
 
 #### `custom(handler)`
+
 Create your own custom serialisation logic.
 
 ```typescript
@@ -168,6 +178,7 @@ const dateHandler = custom<Date>({
 ### Objects and Tuples
 
 #### Objects
+
 Plain objects define key-value structures. Keys are sorted alphabetically during encoding to ensure consistent binary output.
 
 ```typescript
@@ -178,6 +189,7 @@ const user = {
 ```
 
 #### Tuples
+
 Arrays in the schema define fixed-order tuples.
 
 ```typescript
@@ -204,6 +216,7 @@ Contributions are welcome!
 5. Submit a pull request.
 
 Please ensure all tests pass by running:
+
 ```bash
 node ./testing/destructure.test.ts
 ```
