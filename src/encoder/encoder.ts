@@ -20,7 +20,7 @@ const dvMethodMap = {
 
 export const encode = <T extends Schema>(
   schema: T | CompiledSchema<T>,
-  data: Data<T>,
+  data: Data.Input<T>,
 ): Uint8Array<ArrayBuffer> => {
   type StackEntry = [schema: CompiledSchema, payload: any, data: Record<string, any>];
 

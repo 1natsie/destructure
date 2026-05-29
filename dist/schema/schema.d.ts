@@ -16,9 +16,12 @@ declare const schema: <T extends Schema>(value: T | CSchema<T>) => CSchema<T>;
 declare const source: <T extends Schema>(value: CSchema<T>) => T;
 declare const array: <T extends Schema>(value: T, count?: number) => T[];
 declare const optional: <T extends Schema>(value: T) => OptionalSchema<T>;
-declare const custom: <T>(handler: CustomSchemaHandler<T>) => CustomSchemaHandler<T>;
-declare const string: CustomSchemaHandler<string>;
+declare const custom: <In, Out = In>(handler: CustomSchemaHandler<In, Out>) => CustomSchemaHandler<In, Out>;
+declare const bytes: CustomSchemaHandler<ArrayLike<number>, Uint8Array<ArrayBuffer>>;
+declare const string: CustomSchemaHandler<string> & {
+    nullTerminated: CustomSchemaHandler<string>;
+};
 export type * from "./types.ts";
-export { array, custom, isCustomSchema, optional, schema, SchemaType, source, string };
+export { array, bytes, custom, isCustomSchema, optional, schema, SchemaType, source, string };
 export type { optionalSchemaKey, schemaSourceKey };
 //# sourceMappingURL=schema.d.ts.map

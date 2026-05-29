@@ -20,6 +20,8 @@ const SchemaType = {
   Custom: 5,
 } as const;
 
+const MAX_ARRAY_LIKE_LENGTH = 2 ** 32 - 1;
+
 const optionalSchemaKey = Symbol("optionalSchema");
 const schemaSourceKey = Symbol("schemaSource");
 
@@ -133,7 +135,9 @@ const optional = <T extends Schema>(value: T): OptionalSchema<T> => {
   return placeholderSchema;
 };
 
-const custom = <T>(handler: CustomSchemaHandler<T>): CustomSchemaHandler<T> => {
+const custom = <In, Out = In>(
+  handler: CustomSchemaHandler<In, Out>,
+): CustomSchemaHandler<In, Out> => {
   if (
     !(
       typeof handler?.encode === "function" &&
@@ -151,42 +155,132 @@ const custom = <T>(handler: CustomSchemaHandler<T>): CustomSchemaHandler<T> => {
   return handler;
 };
 
-const string: CustomSchemaHandler<string> = custom<string>({
+const bytes: CustomSchemaHandler<ArrayLike<number>, Uint8Array<ArrayBuffer>> = custom<
+  ArrayLike<number>,
+  Uint8Array<ArrayBuffer>
+>({
   encode: (value) => {
-    const encoded = textEncoder.encode(value);
-    if (encoded.length > 2 ** 32 - 1) throw new RangeError("Input length exceeds limit.");
+    if (value.length > MAX_ARRAY_LIKE_LENGTH) {
+      throw new RangeError("Input length exceeds limit.");
+    }
 
-    const result = new Uint8Array(encoded.length + 4);
+    for (let i = 0; i < value.length; i++) {
+      const num = value[i]!;
+      if (Number.isSafeInteger(num) && num >= 0 && num <= 255) continue;
+      throw new TypeError("Invalid element in byte array.");
+    }
 
-    result.set(encoded, 4);
-    result.set(coder.encodeNumber(encoded.length), 0);
+    const result = new Uint8Array(value.length + 4);
+    result.set(value, 4);
+    result.set(coder.encodeNumber(value.length), 0);
 
     return result;
   },
-  decode: (bytes, offset) => {
-    const dataLength = bytes.view.getUint32(offset, true);
-    const dataOffset = offset + 4;
-    return {
-      value: textDecoder.decode(bytes.array.subarray(dataOffset, dataOffset + dataLength)),
-      nextOffset: offset + 4 + dataLength,
-    };
-  },
   encodeInto: (buffer, value) => {
-    const encoded = textEncoder.encode(value);
-    if (encoded.length > 2 ** 32 - 1) throw new RangeError("Input length exceeds limit.");
+    for (let i = 0; i < value.length; i++) {
+      const num = value[i]!;
+      if (Number.isSafeInteger(num) && num >= 0 && num <= 255) continue;
+      throw new TypeError("Invalid element in byte array.");
+    }
 
-    buffer.ensureCapacity(encoded.length + 4);
-    buffer.view.setUint32(buffer.offset, encoded.length, true);
-    buffer.buffer.set(encoded, (buffer.offset += 4));
-    buffer.offset += encoded.length;
+    buffer.ensureCapacity(value.length + 4);
+    buffer.view.setUint32(buffer.offset, value.length, true);
+    buffer.buffer.set(value, (buffer.offset += 4));
+    buffer.offset += value.length;
 
     return null;
+  },
+  decode: (bytes, offset) => {
+    const length = bytes.view.getUint32(offset, true);
+    const dataOffset = offset + 4;
+    return {
+      value: bytes.array.slice(dataOffset, dataOffset + length),
+      nextOffset: dataOffset + length,
+    };
   },
   size: () => ({ value: 4, isVariable: true }),
 });
 
+const string: CustomSchemaHandler<string> & { nullTerminated: CustomSchemaHandler<string> } =
+  Object.assign(
+    custom<string>({
+      encode: (value) => {
+        const encoded = textEncoder.encode(value);
+        if (encoded.length > 2 ** 32 - 1) throw new RangeError("Input length exceeds limit.");
+
+        const result = new Uint8Array(encoded.length + 4);
+
+        result.set(encoded, 4);
+        result.set(coder.encodeNumber(encoded.length), 0);
+
+        return result;
+      },
+      decode: (bytes, offset) => {
+        const dataLength = bytes.view.getUint32(offset, true);
+        const dataOffset = offset + 4;
+        return {
+          value: textDecoder.decode(bytes.array.subarray(dataOffset, dataOffset + dataLength)),
+          nextOffset: dataOffset + dataLength,
+        };
+      },
+      encodeInto: (buffer, value) => {
+        const encoded = textEncoder.encode(value);
+        if (encoded.length > 2 ** 32 - 1) throw new RangeError("Input length exceeds limit.");
+
+        buffer.ensureCapacity(encoded.length + 4);
+        buffer.view.setUint32(buffer.offset, encoded.length, true);
+        buffer.buffer.set(encoded, (buffer.offset += 4));
+        buffer.offset += encoded.length;
+
+        return null;
+      },
+      size: () => ({ value: 4, isVariable: true }),
+    }),
+    {
+      nullTerminated: custom<string>({
+        encode: (value) => {
+          const encoded = textEncoder.encode(value);
+          const result = new Uint8Array(encoded.length + 1);
+
+          result[encoded.length] = 0;
+          for (let i = 0; i < encoded.length; i++) {
+            if (encoded[i] !== 0) result[i] = encoded[i]!;
+            else throw new TypeError("Null terminator within string.");
+          }
+
+          return result;
+        },
+        encodeInto: (buffer, value) => {
+          const encoded = textEncoder.encode(value);
+          const result = new Uint8Array(encoded.length + 1);
+
+          result[encoded.length] = 0;
+          for (let i = 0; i < encoded.length; i++) {
+            if (encoded[i] !== 0) result[i] = encoded[i]!;
+            else throw new TypeError("Null terminator within string.");
+          }
+
+          buffer.ensureCapacity(result.length);
+          buffer.buffer.set(result, buffer.offset);
+          buffer.offset += result.length;
+
+          return null;
+        },
+        decode: (bytes, offset) => {
+          let endOffset = offset;
+          while (endOffset < bytes.array.length && bytes.array[endOffset] !== 0) endOffset++;
+          return {
+            value: textDecoder.decode(bytes.array.subarray(offset, endOffset)),
+            nextOffset: endOffset + 1,
+          };
+        },
+        size: () => ({ value: 1, isVariable: true }),
+      }),
+    },
+  );
+
 PRIMITIVE_TYPES_ARRAY.map(schema); // Precompile schemas
 
 export type * from "./types.ts";
-export { array, custom, isCustomSchema, optional, schema, SchemaType, source, string };
+export { array, bytes, custom, isCustomSchema, optional, schema, SchemaType, source, string };
 export type { optionalSchemaKey, schemaSourceKey };

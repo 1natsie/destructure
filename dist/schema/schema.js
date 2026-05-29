@@ -8,6 +8,7 @@ const SchemaType = {
     Optional: 4,
     Custom: 5,
 };
+const MAX_ARRAY_LIKE_LENGTH = 2 ** 32 - 1;
 const optionalSchemaKey = Symbol("optionalSchema");
 const schemaSourceKey = Symbol("schemaSource");
 const schemaMap = new Map();
@@ -130,7 +131,46 @@ const custom = (handler) => {
     schemaMap.set(handler, Object.freeze({ type: SchemaType.Custom, [schemaSourceKey]: handler, handler }));
     return handler;
 };
-const string = custom({
+const bytes = custom({
+    encode: (value) => {
+        if (value.length > MAX_ARRAY_LIKE_LENGTH) {
+            throw new RangeError("Input length exceeds limit.");
+        }
+        for (let i = 0; i < value.length; i++) {
+            const num = value[i];
+            if (Number.isSafeInteger(num) && num >= 0 && num <= 255)
+                continue;
+            throw new TypeError("Invalid element in byte array.");
+        }
+        const result = new Uint8Array(value.length + 4);
+        result.set(value, 4);
+        result.set(coder.encodeNumber(value.length), 0);
+        return result;
+    },
+    encodeInto: (buffer, value) => {
+        for (let i = 0; i < value.length; i++) {
+            const num = value[i];
+            if (Number.isSafeInteger(num) && num >= 0 && num <= 255)
+                continue;
+            throw new TypeError("Invalid element in byte array.");
+        }
+        buffer.ensureCapacity(value.length + 4);
+        buffer.view.setUint32(buffer.offset, value.length, true);
+        buffer.buffer.set(value, (buffer.offset += 4));
+        buffer.offset += value.length;
+        return null;
+    },
+    decode: (bytes, offset) => {
+        const length = bytes.view.getUint32(offset, true);
+        const dataOffset = offset + 4;
+        return {
+            value: bytes.array.slice(dataOffset, dataOffset + length),
+            nextOffset: dataOffset + length,
+        };
+    },
+    size: () => ({ value: 4, isVariable: true }),
+});
+const string = Object.assign(custom({
     encode: (value) => {
         const encoded = textEncoder.encode(value);
         if (encoded.length > 2 ** 32 - 1)
@@ -145,7 +185,7 @@ const string = custom({
         const dataOffset = offset + 4;
         return {
             value: textDecoder.decode(bytes.array.subarray(dataOffset, dataOffset + dataLength)),
-            nextOffset: offset + 4 + dataLength,
+            nextOffset: dataOffset + dataLength,
         };
     },
     encodeInto: (buffer, value) => {
@@ -159,7 +199,47 @@ const string = custom({
         return null;
     },
     size: () => ({ value: 4, isVariable: true }),
+}), {
+    nullTerminated: custom({
+        encode: (value) => {
+            const encoded = textEncoder.encode(value);
+            const result = new Uint8Array(encoded.length + 1);
+            result[encoded.length] = 0;
+            for (let i = 0; i < encoded.length; i++) {
+                if (encoded[i] !== 0)
+                    result[i] = encoded[i];
+                else
+                    throw new TypeError("Null terminator within string.");
+            }
+            return result;
+        },
+        encodeInto: (buffer, value) => {
+            const encoded = textEncoder.encode(value);
+            const result = new Uint8Array(encoded.length + 1);
+            result[encoded.length] = 0;
+            for (let i = 0; i < encoded.length; i++) {
+                if (encoded[i] !== 0)
+                    result[i] = encoded[i];
+                else
+                    throw new TypeError("Null terminator within string.");
+            }
+            buffer.ensureCapacity(result.length);
+            buffer.buffer.set(result, buffer.offset);
+            buffer.offset += result.length;
+            return null;
+        },
+        decode: (bytes, offset) => {
+            let endOffset = offset;
+            while (endOffset < bytes.array.length && bytes.array[endOffset] !== 0)
+                endOffset++;
+            return {
+                value: textDecoder.decode(bytes.array.subarray(offset, endOffset)),
+                nextOffset: endOffset + 1,
+            };
+        },
+        size: () => ({ value: 1, isVariable: true }),
+    }),
 });
 PRIMITIVE_TYPES_ARRAY.map(schema); // Precompile schemas
-export { array, custom, isCustomSchema, optional, schema, SchemaType, source, string };
+export { array, bytes, custom, isCustomSchema, optional, schema, SchemaType, source, string };
 //# sourceMappingURL=schema.js.map

@@ -21,7 +21,7 @@ export const decode = <T extends Schema>(
   schema: T,
   buffer: Uint8Array<ArrayBuffer>,
   offset = 0,
-): Data<T> => {
+): Data.Output<T> => {
   type ObjectQueueEntry = ["object", Record<string, any>, string];
   type ArrayQueueEntry = ["array", any[]];
   interface DecoderState {

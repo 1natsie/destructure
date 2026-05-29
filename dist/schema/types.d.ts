@@ -62,13 +62,13 @@ export type SizeOfResult = {
     value: number;
     isVariable: boolean;
 };
-export interface CustomSchemaHandler<T = any> {
-    encode: (value: T) => Uint8Array<ArrayBuffer>;
-    encodeInto?: (buffer: GrowingBuffer, value: T) => null;
+export interface CustomSchemaHandler<InputType = any, OutputType extends any = InputType> {
+    encode: (value: InputType) => Uint8Array<ArrayBuffer>;
+    encodeInto?: (buffer: GrowingBuffer, value: InputType) => null;
     decode: (bytes: {
         array: Uint8Array<ArrayBuffer>;
         view: DataView<ArrayBuffer>;
-    }, offset: number) => StructDecodeResult<T>;
+    }, offset: number) => StructDecodeResult<OutputType>;
     size: () => SizeOfResult;
 }
 export type SimpleSchema = `${PrimitiveType}${`[${number | ""}]` | ""}`;
@@ -85,12 +85,22 @@ export type Schema = NullSchema | SimpleSchema | ObjectSchema | TupleSchema | Cu
     [schemaSourceKey]: Schema;
 };
 type DecodePrimitive<T extends SimpleSchema> = T extends PrimitiveType ? PrimitiveTypeMap[T] : T extends `${infer PT extends PrimitiveType}[${number | ""}]` ? PrimitiveTypeMap[PT][] : never;
-type DecodeTuple<T extends Schema[], Collector extends unknown[] = []> = any[] extends T ? T extends (infer ST extends Schema)[] ? Data<ST>[] : never : T extends [infer Schm extends Schema, ...infer Rest extends Schema[]] ? DecodeTuple<Rest, [...Collector, Data<Schm>]> : Collector;
-type DecodeObject<T extends ObjectSchema> = {
-    [K in Exclude<keyof T, KeysWithOptionalSchemas<T>>]: Data<T[K]>;
-} & {
-    [K in KeysWithOptionalSchemas<T>]?: Data<T[K]>;
-};
-export type Data<Schm extends Schema> = Schm extends NullSchema ? null : Schm extends OptionalSchema<infer T> ? Data<T> | undefined : Schm extends SimpleSchema ? DecodePrimitive<Schm> : Schm extends TupleSchema ? DecodeTuple<Schm> : Schm extends ObjectSchema ? DecodeObject<Schm> : Schm extends CustomSchemaHandler<infer CS> ? CS : Schm extends CompiledSchema<infer S> ? Data<S> : never;
+export declare namespace Data {
+    type DecodeInputTuple<T extends Schema[], Collector extends unknown[] = []> = any[] extends T ? T extends (infer ST extends Schema)[] ? Data.Input<ST>[] : never : T extends [infer Schm extends Schema, ...infer Rest extends Schema[]] ? DecodeInputTuple<Rest, [...Collector, Data.Input<Schm>]> : Collector;
+    type DecodeOutputTuple<T extends Schema[], Collector extends unknown[] = []> = any[] extends T ? T extends (infer ST extends Schema)[] ? Data.Output<ST>[] : never : T extends [infer Schm extends Schema, ...infer Rest extends Schema[]] ? DecodeOutputTuple<Rest, [...Collector, Data.Output<Schm>]> : Collector;
+    type DecodeInputObject<T extends ObjectSchema> = {
+        [K in Exclude<keyof T, KeysWithOptionalSchemas<T>>]: Data.Input<T[K]>;
+    } & {
+        [K in KeysWithOptionalSchemas<T>]?: Data.Input<T[K]>;
+    };
+    type DecodeOutputObject<T extends ObjectSchema> = {
+        [K in Exclude<keyof T, KeysWithOptionalSchemas<T>>]: Data.Output<T[K]>;
+    } & {
+        [K in KeysWithOptionalSchemas<T>]?: Data.Output<T[K]>;
+    };
+    export type Input<Schm extends Schema> = Schm extends NullSchema ? null : Schm extends OptionalSchema<infer T> ? Data.Input<T> | undefined : Schm extends SimpleSchema ? DecodePrimitive<Schm> : Schm extends TupleSchema ? DecodeInputTuple<Schm> : Schm extends ObjectSchema ? DecodeInputObject<Schm> : Schm extends CustomSchemaHandler<infer InputType, infer _OutputType> ? InputType : Schm extends CompiledSchema<infer S> ? Data.Input<S> : never;
+    export type Output<Schm extends Schema> = Schm extends NullSchema ? null : Schm extends OptionalSchema<infer T> ? Data.Input<T> | undefined : Schm extends SimpleSchema ? DecodePrimitive<Schm> : Schm extends TupleSchema ? DecodeOutputTuple<Schm> : Schm extends ObjectSchema ? DecodeOutputObject<Schm> : Schm extends CustomSchemaHandler<infer _InputType, infer OutputType> ? OutputType : Schm extends CompiledSchema<infer S> ? Data.Input<S> : never;
+    export {};
+}
 export {};
 //# sourceMappingURL=types.d.ts.map
