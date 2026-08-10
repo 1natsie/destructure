@@ -1,135 +1,233 @@
-import { coder, destructureSimpleSchema, PRIMITIVE_TYPES_ARRAY, sortObjectEntries, textDecoder, textEncoder, } from "../utils/utils.js";
+import { coder, destructureSimpleSchema, sortObjectEntries, textDecoder, textEncoder, } from "../utils/utils.js";
 const SchemaType = {
     Null: -1,
     Simple: 0,
     Object: 1,
     Tuple: 2,
     Array: 3,
-    Optional: 4,
-    Custom: 5,
+    Bitpack: 4,
+    Optional: 5,
+    Custom: 6,
 };
 const MAX_ARRAY_LIKE_LENGTH = 2 ** 32 - 1;
+const compiledSchemaKey = Symbol("compiledSchema");
 const optionalSchemaKey = Symbol("optionalSchema");
-const schemaSourceKey = Symbol("schemaSource");
-const schemaMap = new Map();
-const schemaSet = new Set();
-schemaMap.set(null, Object.freeze({ type: SchemaType.Null, [schemaSourceKey]: null }));
-const isCompiledSchema = (value) => schemaSet.has(value);
-const isCustomSchema = (value) => {
-    return schemaMap.get(value)?.type === SchemaType.Custom;
+const bitpackSchemaKey = Symbol("bitpackSchema");
+const customSchemaKey = Symbol("customSchemaHandler");
+const schemaMap = new WeakMap();
+const compiledNullSchema = Object.freeze({
+    [compiledSchemaKey]: null,
+    schemaType: SchemaType.Null,
+});
+const isCompiledSchema = (value) => {
+    return value != null && typeof value === "object" && compiledSchemaKey in value;
 };
-const schema = (value) => compileSchema(value);
-const source = (value) => value[schemaSourceKey];
-const compileSchema = (value) => {
-    if (schemaMap.has(value))
-        return schemaMap.get(value);
+const isCustomSchema = (value) => {
+    return value != null && typeof value === "object" && customSchemaKey in value;
+};
+const schema = (value) => {
+    if (value === null)
+        return compiledNullSchema;
     if (isCompiledSchema(value))
         return value;
-    if (isCustomSchema(value))
-        return schemaMap.get(value);
-    let compiled;
-    if (value === null)
-        compiled = schemaMap.get(null);
-    else if (typeof value === "string") {
+    if (typeof value === "string") {
         const ds = destructureSimpleSchema(value);
-        compiled = ds.isArray
-            ? {
-                type: SchemaType.Array,
-                [schemaSourceKey]: value,
-                schema: {
-                    type: SchemaType.Simple,
-                    [schemaSourceKey]: ds.base,
-                    base: ds.base,
-                    byteLength: ds.byteLength,
-                },
-                count: ds.arrayLength,
-            }
-            : {
-                type: SchemaType.Simple,
-                [schemaSourceKey]: value,
-                base: ds.base,
-                byteLength: ds.byteLength,
-            };
+        return Object.freeze({
+            [compiledSchemaKey]: value,
+            schemaType: SchemaType.Simple,
+            base: ds.base,
+            byteLength: ds.byteLength,
+            count: ds.isArray ? ds.arrayLength : 1,
+            isArray: ds.isArray,
+        });
     }
-    else if (typeof value === "object") {
-        compiled = Array.isArray(value)
-            ? { type: SchemaType.Tuple, [schemaSourceKey]: value, entries: [] }
-            : { type: SchemaType.Object, [schemaSourceKey]: value, entries: [] };
+    if (typeof value === "object") {
+        const closingMarker = Symbol("closingMarker");
+        const freeze = Object.freeze;
+        const push = Function.prototype.call.bind(Array.prototype.push);
+        const result = Array.isArray(value)
+            ? { [compiledSchemaKey]: compiledSchemaKey, schemaType: SchemaType.Tuple, entries: [] }
+            : { [compiledSchemaKey]: compiledSchemaKey, schemaType: SchemaType.Object, entries: [] };
         const stack = Array.isArray(value)
-            ? value.map((s) => [compiled, null, s]).reverse()
+            ? value.map((s) => [result, null, s]).reverse()
             : sortObjectEntries(Object.entries(value))
-                .map((s) => [compiled, s[0], s[1]])
+                .map((s) => [result, s[0], s[1]])
                 .reverse();
         while (stack.length) {
             const [parent, key, value] = stack.pop();
             let compiled;
+            if (value === closingMarker) {
+                freeze(parent.entries);
+                freeze(parent);
+                continue;
+            }
             if (isCompiledSchema(value))
                 compiled = value;
+            else if (value === null)
+                compiled = compiledNullSchema;
+            else if (typeof value === "string")
+                compiled = schema(value);
+            else if (isCustomSchema(value))
+                compiled = schema(value);
             else if (schemaMap.has(value))
                 compiled = schemaMap.get(value);
-            else if (typeof value === "string")
-                compiled = compileSchema(value);
-            else if (value === null)
-                compiled = compileSchema(value);
-            else if (isCustomSchema(value))
-                compiled = compileSchema(value);
             else if (Array.isArray(value)) {
-                compiled = { type: SchemaType.Tuple, [schemaSourceKey]: value, entries: [] };
+                compiled = {
+                    [compiledSchemaKey]: compiledSchemaKey,
+                    schemaType: SchemaType.Tuple,
+                    entries: [],
+                };
+                stack.push([compiled, null, closingMarker]);
                 stack.push(...value.map((s) => [compiled, null, s]).reverse());
             }
             else if (typeof value === "object") {
-                compiled = { type: SchemaType.Object, [schemaSourceKey]: value, entries: [] };
+                compiled = {
+                    [compiledSchemaKey]: compiledSchemaKey,
+                    schemaType: SchemaType.Object,
+                    entries: [],
+                };
+                stack.push([compiled, null, closingMarker]);
                 stack.push(...sortObjectEntries(Object.entries(value))
                     .map((s) => [compiled, s[0], s[1]])
                     .reverse());
             }
             else
                 throw new Error("Invalid schema.");
-            if (parent.type === SchemaType.Object)
-                key && parent.entries.push([key, compiled]);
-            else if (parent.type === SchemaType.Tuple)
-                parent.entries.push(compiled);
+            if (parent.schemaType === SchemaType.Object)
+                key && push(parent.entries, freeze([key, compiled]));
+            else if (parent.schemaType === SchemaType.Tuple)
+                push(parent.entries, compiled);
         }
+        freeze(result.entries);
+        freeze(result);
+        schemaMap.set(value, result);
+        return result;
     }
-    else
-        throw new Error("Invalid schema.");
-    Object.freeze(compiled);
-    schemaMap.set(value, compiled);
-    schemaSet.add(compiled);
-    return compiled;
+    throw new TypeError("Invalid schema.");
 };
 const array = (value, count = -1) => {
+    if (!Number.isSafeInteger(count))
+        throw new TypeError("Array count must be a safe integer.");
+    if (count !== -1 && !(count >= 0 && count <= MAX_ARRAY_LIKE_LENGTH)) {
+        throw new RangeError("Array count must be between 0 and the maximum length.");
+    }
     const compiled = {
-        type: SchemaType.Array,
-        [schemaSourceKey]: value,
-        schema: compileSchema(value),
+        [compiledSchemaKey]: compiledSchemaKey,
+        schemaType: SchemaType.Array,
+        schema: schema(value),
         count,
     };
-    const placeholderSchema = [];
-    Object.freeze(compiled);
-    schemaMap.set(placeholderSchema, compiled);
-    schemaSet.add(compiled);
-    return placeholderSchema;
+    return Object.freeze(compiled);
+};
+const bitpack = (bitCount) => {
+    if (!Number.isSafeInteger(bitCount) || bitCount < 1) {
+        throw new TypeError("Bitpack bit count must be a safe positive integer.");
+    }
+    const compiled = {
+        [compiledSchemaKey]: compiledSchemaKey,
+        schemaType: SchemaType.Bitpack,
+        bitCount: bitCount,
+    };
+    return Object.freeze(compiled);
 };
 const optional = (value) => {
-    const placeholderSchema = { [optionalSchemaKey]: true, schema: value };
-    const compiled = Object.freeze({
-        type: SchemaType.Optional,
-        [schemaSourceKey]: value,
-        schema: compileSchema(value),
-    });
-    schemaMap.set(placeholderSchema, compiled);
-    schemaSet.add(compiled);
-    return placeholderSchema;
+    const compiled = {
+        [compiledSchemaKey]: compiledSchemaKey,
+        schemaType: SchemaType.Optional,
+        schema: schema(value),
+    };
+    return Object.freeze(compiled);
 };
+const combine = Object.freeze({
+    append: ((a, b) => {
+        const aCompiled = schema(a);
+        const bCompiled = schema(b);
+        if (aCompiled.schemaType === SchemaType.Object && bCompiled.schemaType === SchemaType.Object) {
+            const entries = new Map();
+            for (const entry of aCompiled.entries)
+                entries.set(entry[0], entry[1]);
+            for (const entry of bCompiled.entries) {
+                if (!entries.has(entry[0]))
+                    entries.set(entry[0], entry[1]);
+                else
+                    throw new ReferenceError(`The key "${entry[0]}" already exists as an entry in the object.`);
+            }
+            return Object.freeze({
+                [compiledSchemaKey]: compiledSchemaKey,
+                schemaType: SchemaType.Object,
+                entries: Object.freeze(sortObjectEntries([...entries].map(Object.freeze))),
+            });
+        }
+        throw new TypeError("Schema type mismatch. Both schemas must be of the object schema type.");
+    }),
+    augment: ((a, b) => {
+        const aCompiled = schema(a);
+        const bCompiled = schema(b);
+        if (aCompiled.schemaType === SchemaType.Object && bCompiled.schemaType === SchemaType.Object) {
+            const entries = new Map();
+            for (const entry of aCompiled.entries)
+                entries.set(entry[0], entry[1]);
+            for (const entry of bCompiled.entries)
+                !entries.has(entry[0]) && entries.set(entry[0], entry[1]);
+            return Object.freeze({
+                [compiledSchemaKey]: compiledSchemaKey,
+                schemaType: SchemaType.Object,
+                entries: Object.freeze(sortObjectEntries([...entries].map(Object.freeze))),
+            });
+        }
+        throw new TypeError("Schema type mismatch. Both schemas must be of the object schema type.");
+    }),
+    merge: ((a, b) => {
+        const aCompiled = schema(a);
+        const bCompiled = schema(b);
+        if (aCompiled.schemaType === SchemaType.Object && bCompiled.schemaType === SchemaType.Object) {
+            const entries = new Map();
+            for (const entry of aCompiled.entries)
+                entries.set(entry[0], entry[1]);
+            for (const entry of bCompiled.entries)
+                entries.set(entry[0], entry[1]);
+            return Object.freeze({
+                [compiledSchemaKey]: compiledSchemaKey,
+                schemaType: SchemaType.Object,
+                entries: Object.freeze(sortObjectEntries([...entries].map(Object.freeze))),
+            });
+        }
+        throw new TypeError("Schema type mismatch. Both schemas must be of the object schema type.");
+    }),
+    concatenate: ((a, b) => {
+        const aCompiled = schema(a);
+        const bCompiled = schema(b);
+        if (aCompiled.schemaType === SchemaType.Tuple && bCompiled.schemaType === SchemaType.Tuple) {
+            return Object.freeze({
+                [compiledSchemaKey]: compiledSchemaKey,
+                schemaType: SchemaType.Tuple,
+                entries: Object.freeze([...aCompiled.entries, ...bCompiled.entries]),
+            });
+        }
+        throw new TypeError("Schema type mismatch. Both schemas must be of the tuple schema type.");
+    }),
+});
 const custom = (handler) => {
     if (!(typeof handler?.encode === "function" &&
         typeof handler?.decode === "function" &&
         typeof handler?.size === "function" &&
-        ("encodeInto" in handler ? typeof handler.encodeInto === "function" : true)))
+        ("encodeInto" in handler && handler.encodeInto != null
+            ? typeof handler.encodeInto === "function"
+            : true)))
         throw new Error("Invalid custom schema handler.");
-    schemaMap.set(handler, Object.freeze({ type: SchemaType.Custom, [schemaSourceKey]: handler, handler }));
-    return handler;
+    const compiled = {
+        [compiledSchemaKey]: compiledSchemaKey,
+        schemaType: SchemaType.Custom,
+        handler: {
+            [customSchemaKey]: customSchemaKey,
+            encode: handler.encode,
+            decode: handler.decode,
+            size: handler.size,
+            encodeInto: handler.encodeInto ?? null,
+        },
+    };
+    Object.freeze(compiled.handler);
+    return Object.freeze(compiled);
 };
 const bytes = custom({
     encode: (value) => {
@@ -143,8 +241,8 @@ const bytes = custom({
             throw new TypeError("Invalid element in byte array.");
         }
         const result = new Uint8Array(value.length + 4);
-        result.set(value, 4);
         result.set(coder.encodeNumber(value.length), 0);
+        result.set(value, 4);
         return result;
     },
     encodeInto: (buffer, value) => {
@@ -163,43 +261,52 @@ const bytes = custom({
     decode: (bytes, offset) => {
         const length = bytes.view.getUint32(offset, true);
         const dataOffset = offset + 4;
+        if (dataOffset + length > bytes.array.length) {
+            throw new RangeError("Insufficient data. Unexpected end of data.");
+        }
         return {
             value: bytes.array.slice(dataOffset, dataOffset + length),
             nextOffset: dataOffset + length,
         };
     },
-    size: () => ({ value: 4, isVariable: true }),
+    size: () => ({ min: 4, max: MAX_ARRAY_LIKE_LENGTH + 4 }),
 });
-const string = Object.assign(custom({
-    encode: (value) => {
-        const encoded = textEncoder.encode(value);
-        if (encoded.length > 2 ** 32 - 1)
-            throw new RangeError("Input length exceeds limit.");
-        const result = new Uint8Array(encoded.length + 4);
-        result.set(encoded, 4);
-        result.set(coder.encodeNumber(encoded.length), 0);
-        return result;
-    },
-    decode: (bytes, offset) => {
-        const dataLength = bytes.view.getUint32(offset, true);
-        const dataOffset = offset + 4;
-        return {
-            value: textDecoder.decode(bytes.array.subarray(dataOffset, dataOffset + dataLength)),
-            nextOffset: dataOffset + dataLength,
-        };
-    },
-    encodeInto: (buffer, value) => {
-        const encoded = textEncoder.encode(value);
-        if (encoded.length > 2 ** 32 - 1)
-            throw new RangeError("Input length exceeds limit.");
-        buffer.ensureCapacity(encoded.length + 4);
-        buffer.view.setUint32(buffer.offset, encoded.length, true);
-        buffer.buffer.set(encoded, (buffer.offset += 4));
-        buffer.offset += encoded.length;
-        return null;
-    },
-    size: () => ({ value: 4, isVariable: true }),
-}), {
+const string = Object.freeze({
+    prefixedLength: custom({
+        encode: (value) => {
+            const encoded = textEncoder.encode(value);
+            if (encoded.length > MAX_ARRAY_LIKE_LENGTH) {
+                throw new RangeError("Input length exceeds limit.");
+            }
+            const result = new Uint8Array(encoded.length + 4);
+            result.set(encoded, 4);
+            result.set(coder.encodeNumber(encoded.length), 0);
+            return result;
+        },
+        decode: (bytes, offset) => {
+            const dataLength = bytes.view.getUint32(offset, true);
+            const dataOffset = offset + 4;
+            if (dataOffset + dataLength > bytes.array.length) {
+                throw new RangeError("Insufficient data. Unexpected end of data.");
+            }
+            return {
+                value: textDecoder.decode(bytes.array.subarray(dataOffset, dataOffset + dataLength)),
+                nextOffset: dataOffset + dataLength,
+            };
+        },
+        encodeInto: (buffer, value) => {
+            const encoded = textEncoder.encode(value);
+            if (encoded.length > MAX_ARRAY_LIKE_LENGTH) {
+                throw new RangeError("Input length exceeds limit.");
+            }
+            buffer.ensureCapacity(encoded.length + 4);
+            buffer.view.setUint32(buffer.offset, encoded.length, true);
+            buffer.buffer.set(encoded, (buffer.offset += 4));
+            buffer.offset += encoded.length;
+            return null;
+        },
+        size: () => ({ min: 4, max: MAX_ARRAY_LIKE_LENGTH + 4 }),
+    }),
     nullTerminated: custom({
         encode: (value) => {
             const encoded = textEncoder.encode(value);
@@ -215,6 +322,9 @@ const string = Object.assign(custom({
         },
         encodeInto: (buffer, value) => {
             const encoded = textEncoder.encode(value);
+            if (encoded.length > MAX_ARRAY_LIKE_LENGTH) {
+                throw new RangeError("Input length exceeds limit.");
+            }
             const result = new Uint8Array(encoded.length + 1);
             result[encoded.length] = 0;
             for (let i = 0; i < encoded.length; i++) {
@@ -232,14 +342,17 @@ const string = Object.assign(custom({
             let endOffset = offset;
             while (endOffset < bytes.array.length && bytes.array[endOffset] !== 0)
                 endOffset++;
+            if (!(endOffset < bytes.array.length && bytes.array[endOffset] === 0)) {
+                throw new RangeError("Missing null terminator. Unexpected end of data.");
+            }
             return {
                 value: textDecoder.decode(bytes.array.subarray(offset, endOffset)),
                 nextOffset: endOffset + 1,
             };
         },
-        size: () => ({ value: 1, isVariable: true }),
+        size: () => ({ min: 1, max: MAX_ARRAY_LIKE_LENGTH + 1 }),
     }),
 });
-PRIMITIVE_TYPES_ARRAY.map(schema); // Precompile schemas
-export { array, bytes, custom, isCustomSchema, optional, schema, SchemaType, source, string };
+export * from "./types.js";
+export { array, bitpack, bytes, combine, custom, MAX_ARRAY_LIKE_LENGTH, optional, schema, SchemaType, string, };
 //# sourceMappingURL=schema.js.map

@@ -1,7 +1,34 @@
-import type { PrimitiveType } from "../schema/schema.ts";
+import type { SimpleSchemaBase } from "../schema/schema.ts";
+
+type EnforcePositiveInteger<T extends number> = number extends T
+  ? T
+  : `${T}` extends `${number}.${number}`
+    ? number
+    : `${T}` extends `-${string}`
+      ? number
+      : T;
+
+export type ArrayOf<T, Length extends number = number, Collector extends T[] = []> =
+  EnforcePositiveInteger<Length> extends infer L extends number
+    ? number extends L
+      ? T[]
+      : Collector["length"] extends L
+        ? Collector
+        : ArrayOf<T, L, [...Collector, T]>
+    : never;
+
+export type SubstituteArrayValues<
+  T extends unknown[],
+  Value,
+  Collector extends Value[] = [],
+> = any[] extends T
+  ? Value[]
+  : T extends [infer _, ...infer Rest]
+    ? SubstituteArrayValues<Rest, Value, [...Collector, Value]>
+    : Collector;
 
 export interface DestructuredSimpleSchema {
-  base: PrimitiveType;
+  base: SimpleSchemaBase;
   isArray: boolean;
   byteLength: number;
   arrayLength: number;

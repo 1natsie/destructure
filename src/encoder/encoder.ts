@@ -5,7 +5,7 @@ import {
   SchemaType,
   schema as _schema,
 } from "../schema/schema.ts";
-import { createGrowingBuffer, getStringCodePoints } from "../utils/utils.ts";
+import { createGrowingBuffer, getStringCharCodes } from "../utils/utils.ts";
 
 const dvMethodMap = {
   u8: DataView.prototype.setUint8,
@@ -16,6 +16,23 @@ const dvMethodMap = {
   i32: DataView.prototype.setInt32,
   f32: DataView.prototype.setFloat32,
   f64: DataView.prototype.setFloat64,
+};
+
+const toArray = <T>(value: T | T[]): T[] => (Array.isArray(value) ? value : [value]);
+
+const getBigInt = (value: number | bigint | number[], segmentCount: number): bigint => {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number") return BigInt(value);
+  if (!Array.isArray(value)) throw new Error("value must be a number, bigint, or array.");
+  if (value.length !== segmentCount) {
+    throw new Error(`value must be an array of length ${segmentCount}.`);
+  }
+
+  let result = 0n;
+  for (let i = value.length - 1; i >= 0; i--)
+    result = (result << 32n) | (BigInt(value[i]!) & 0xffffffffn);
+
+  return result;
 };
 
 export const encode = <T extends Schema>(
@@ -29,22 +46,147 @@ export const encode = <T extends Schema>(
 
   while (stack.length) {
     const [schema, payload, data] = stack.pop()!;
-    switch (schema.type) {
+    switch (schema.schemaType) {
       case SchemaType.Null: {
         break;
       }
       case SchemaType.Simple: {
-        if (schema.base === "char") {
-          const codepoints = getStringCodePoints(payload);
-          if (codepoints.length === 1) buffer.writeOne(codepoints[0]!);
-          else throw new Error("char data must be a string with one codepoint.");
-          break;
+        if (schema.isArray && !Array.isArray(payload)) {
+          throw new TypeError(
+            `Invalid data. Data must be an array for schema: ${schema.base}[${schema.count}].`,
+          );
         }
 
-        const method = dvMethodMap[schema.base];
-        buffer.ensureCapacity(schema.byteLength);
-        method.call(buffer.view, buffer.offset, payload, true);
-        buffer.offset += schema.byteLength;
+        switch (schema.base) {
+          case "char": {
+            const _payload = Array.from(payload).flatMap((p) =>
+              getStringCharCodes(p as string, (c) => {
+                if (c > 255)
+                  throw new TypeError("char data must be a string with one unicode scalar value.");
+                return c;
+              }),
+            );
+
+            let count: number;
+            if (schema.count === -1) {
+              buffer.ensureCapacity(4 + schema.byteLength * _payload.length);
+              buffer.view.setUint32(buffer.offset, _payload.length, true);
+              buffer.offset += 4;
+              count = _payload.length;
+            } else {
+              if (_payload.length !== schema.count) {
+                throw new Error(
+                  `Element count mismatch between schema and data. Expected ${schema.count} elements, but received ${_payload.length}.`,
+                );
+              }
+
+              buffer.ensureCapacity(schema.byteLength * schema.count);
+              count = schema.count;
+            }
+
+            for (let i = 0; i < count; i++) buffer.writeOne(_payload[i]!);
+
+            break;
+          }
+          case "u8":
+          case "u16":
+          case "u32":
+          case "i8":
+          case "i16":
+          case "i32":
+          case "f32":
+          case "f64": {
+            const _payload = Array.isArray(payload) ? payload : [payload];
+
+            let count: number;
+            if (schema.count === -1) {
+              buffer.ensureCapacity(4 + schema.byteLength * _payload.length);
+              buffer.view.setUint32(buffer.offset, _payload.length, true);
+              buffer.offset += 4;
+              count = _payload.length;
+            } else {
+              if (_payload.length !== schema.count) {
+                throw new Error(
+                  `Element count mismatch between schema and data. Expected ${schema.count} elements, but received ${_payload.length}.`,
+                );
+              }
+
+              buffer.ensureCapacity(schema.byteLength * schema.count);
+              count = schema.count;
+            }
+            const method = dvMethodMap[schema.base];
+
+            for (let i = 0; i < count; i++) {
+              method.call(buffer.view, buffer.offset, _payload[i], true);
+              buffer.offset += schema.byteLength;
+            }
+            break;
+          }
+          case "u64":
+          case "i64": {
+            const _payload = schema.isArray
+              ? (payload as any[]).map((p) => getBigInt(p, 2))
+              : [getBigInt(payload, 2)];
+
+            let count: number;
+            if (schema.count === -1) {
+              buffer.ensureCapacity(4 + schema.byteLength * _payload.length);
+              buffer.view.setUint32(buffer.offset, _payload.length, true);
+              buffer.offset += 4;
+              count = _payload.length;
+            } else {
+              if (_payload.length !== schema.count) {
+                throw new Error(
+                  `Element count mismatch between schema and data. Expected ${schema.count} elements, but received ${_payload.length}.`,
+                );
+              }
+
+              buffer.ensureCapacity(schema.byteLength * schema.count);
+              count = schema.count;
+            }
+
+            for (let i = 0; i < count; i++) {
+              buffer.view.setBigUint64(buffer.offset, getBigInt(_payload[i]!, 2), true);
+              buffer.offset += 8;
+            }
+            break;
+          }
+          case "u128":
+          case "i128": {
+            const _payload = schema.isArray
+              ? (payload as any[]).map((p) => getBigInt(p, 4))
+              : [getBigInt(payload, 4)];
+
+            let count: number;
+            if (schema.count === -1) {
+              buffer.ensureCapacity(4 + schema.byteLength * _payload.length);
+              buffer.view.setUint32(buffer.offset, _payload.length, true);
+              buffer.offset += 4;
+              count = _payload.length;
+            } else {
+              if (_payload.length !== schema.count) {
+                throw new Error(
+                  `Element count mismatch between schema and data. Expected ${schema.count} elements, but received ${_payload.length}.`,
+                );
+              }
+
+              buffer.ensureCapacity(schema.byteLength * schema.count);
+              count = schema.count;
+            }
+
+            for (let i = 0; i < count; i++) {
+              const bi = getBigInt(_payload[i]!, 4);
+              buffer.view.setBigInt64(buffer.offset, bi & (2n ** 64n - 1n), true);
+              buffer.view.setBigInt64(buffer.offset + 8, (bi >> 64n) & (2n ** 64n - 1n), true);
+              buffer.offset += 16;
+            }
+            break;
+          }
+          default: {
+            throw new Error(`Unsupported base type: ${schema.base}`);
+          }
+        }
+
         break;
       }
       case SchemaType.Object: {
@@ -77,8 +219,21 @@ export const encode = <T extends Schema>(
         stack.push(...payload.map<StackEntry>((payload) => [schema.schema, payload, {}]).reverse());
         break;
       }
+      case SchemaType.Bitpack: {
+        if (!Array.isArray(payload)) throw new TypeError("data must be an array.");
+        if (payload.length !== schema.bitCount) throw new Error("Element count mismatch.");
+
+        let processed = 0;
+        while (processed < schema.bitCount) {
+          let byte = 0;
+          for (let i = 0; i < 8; i++) byte |= +!!payload[processed + i] << (7 - i);
+          buffer.writeOne(byte);
+          processed += 8;
+        }
+        break;
+      }
       case SchemaType.Optional: {
-        const isSupplied = payload !== undefined;
+        const isSupplied = payload != null;
 
         buffer.ensureCapacity(1);
         buffer.buffer[buffer.offset++] = +isSupplied;
@@ -86,11 +241,9 @@ export const encode = <T extends Schema>(
         break;
       }
       case SchemaType.Custom: {
-        if ("encodeInto" in schema.handler) schema.handler.encodeInto(buffer, payload);
-        else {
-          const data = schema.handler.encode(payload);
-          buffer.write(data);
-        }
+        if ("encodeInto" in schema.handler && schema.handler.encodeInto != null) {
+          schema.handler.encodeInto(buffer, payload);
+        } else buffer.write(schema.handler.encode(payload));
         break;
       }
       default: {

@@ -139,8 +139,6 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
 # Custom
-bun.lock
-package-lock.json
 !dist/
 .vscode/*
 !.vscode/settings.json

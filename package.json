@@ -1,6 +1,6 @@
 {
   "name": "1n-destructure",
-  "version": "0.0.1-alpha.3",
+  "version": "0.1.0",
   "description": "A library for serialisation and deserialisation of structured data.",
   "homepage": "https://github.com/1natsie/destructure#readme",
   "author": "Oghenevwegba Obire",
@@ -21,14 +21,17 @@
   ],
   "type": "module",
   "scripts": {
-    "build": "node ./scripts/build.js",
-    "build:watch": "node ./scripts/build-watch.js",
-    "dev": "node ./scripts/dev.js"
+    "build": "rm -rf dist && npx tsc",
+    "dev": "rm -rf dist && npx tsc --watch",
+    "format": "npx prettier --write src tests",
+    "test": "node --test tests/destructure.test.ts",
+    "typecheck": "npx tsc --noEmit"
   },
   "files": [
     "dist/",
     "package.json",
-    "LICENSE",
+    "LICENCE",
+    "CHANGELOG.md",
     "README.md"
   ],
   "exports": {
@@ -45,11 +48,13 @@
       "types": "./dist/schema/schema.d.ts"
     }
   },
+  "dependencies": {},
   "devDependencies": {
-    "@types/node": "^25.7.0",
+    "@types/chai": "^5.2.3",
+    "@types/node": "^26.1.2",
     "chai": "^6.2.2",
-    "prettier": "^3.8.3",
-    "typescript": "^6.0.3"
+    "prettier": "^3.9.6",
+    "typescript": "^7.0.2"
   },
   "bugs": {
     "url": "https://github.com/1natsie/destructure/issues"

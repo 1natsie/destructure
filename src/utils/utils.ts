@@ -1,23 +1,27 @@
-import type { PrimitiveType, SimpleSchema } from "../schema/schema.ts";
+import type { SimpleSchema, SimpleSchemaBase } from "../schema/schema.ts";
 import type { DestructuredSimpleSchema, GrowingBuffer } from "./types.ts";
 
-export const PRIMITIVE_TYPES_ARRAY: ReadonlyArray<PrimitiveType> = Object.freeze([
+export const SIMPLE_SCHEMA_BASE_ARRAY: ReadonlyArray<SimpleSchemaBase> = Object.freeze([
   "char",
   "u8",
   "u16",
   "u32",
+  "u64",
+  "u128",
   "i8",
   "i16",
   "i32",
+  "i64",
+  "i128",
   "f32",
   "f64",
 ]);
 
-export const PRIMITIVE_TYPES: ReadonlySet<PrimitiveType> = new Set(PRIMITIVE_TYPES_ARRAY);
+export const SIMPLE_SCHEMA_BASE: ReadonlySet<SimpleSchemaBase> = new Set(SIMPLE_SCHEMA_BASE_ARRAY);
 
-export const BITLENGTH_REGEX = /(8|16|32|64)$/;
-export const PRIMITIVE_TYPE_REGEX = new RegExp(
-  `^((?:${PRIMITIVE_TYPES_ARRAY.join("|")})+)(\\[([0-9])?\\])?$`,
+export const BITLENGTH_REGEX = /(8|16|32|64|128)$/;
+export const SIMPLE_SCHEMA_BASE_REGEX = new RegExp(
+  `^((?:${SIMPLE_SCHEMA_BASE_ARRAY.join("|")})+)(\\[([0-9]+)?\\])?$`,
   "i",
 );
 
@@ -50,33 +54,30 @@ export const coder = {
   decodeString: (x: ArrayLike<number>): string => textDecoder.decode(new Uint8Array(x)),
 };
 
-export const getStringCodePoints = (value: string, guardFn?: (cp: number) => number) => {
-  const codepoints: number[] = [];
+export const getStringCharCodes = (value: string, guardFn?: (cc: number) => number) => {
+  const charcodes: number[] = new Array(value.length).fill(0);
   if (typeof value !== "string") throw new TypeError("value must be a string.");
 
-  if (guardFn) {
-    for (let i = 0; i < value.length; i++) codepoints.push(guardFn(value.codePointAt(i) || 0));
-  } else {
-    for (let i = 0; i < value.length; i++) codepoints.push(value.codePointAt(i) || 0);
-  }
+  if (guardFn == null) for (let i = 0; i < value.length; i++) charcodes[i] = value.charCodeAt(i);
+  else for (let i = 0; i < value.length; i++) charcodes[i] = guardFn(value.charCodeAt(i));
 
-  return codepoints;
+  return charcodes;
 };
 
 export const destructureSimpleSchema = (schema: SimpleSchema): DestructuredSimpleSchema => {
-  const match = schema.match(PRIMITIVE_TYPE_REGEX);
-  if (!match) throw new Error("Invalid struct.");
+  const match = schema.match(SIMPLE_SCHEMA_BASE_REGEX);
+  if (!match) throw new Error("Invalid schema.");
 
   const [_input, base, array, arrayLength] = match;
   const [_, _byteLength] = base?.match(BITLENGTH_REGEX) || [];
-  if (_byteLength == null && base !== "char") throw new Error("Invalid struct.");
+  if (_byteLength == null && base !== "char") throw new Error("Invalid schema.");
 
-  if (!PRIMITIVE_TYPES.has(base as PrimitiveType)) {
-    throw new Error(`Unknown primitive type: ${base}`);
+  if (!SIMPLE_SCHEMA_BASE.has(base as SimpleSchemaBase)) {
+    throw new Error(`Unknown simple schema: ${base}`);
   }
 
   return {
-    base: base as PrimitiveType,
+    base: base as SimpleSchemaBase,
     isArray: array != null,
     byteLength: base === "char" ? 1 : +_byteLength! / 8,
     arrayLength: arrayLength == null ? -1 : +arrayLength,

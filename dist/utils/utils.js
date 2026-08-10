@@ -1,17 +1,21 @@
-export const PRIMITIVE_TYPES_ARRAY = Object.freeze([
+export const SIMPLE_SCHEMA_BASE_ARRAY = Object.freeze([
     "char",
     "u8",
     "u16",
     "u32",
+    "u64",
+    "u128",
     "i8",
     "i16",
     "i32",
+    "i64",
+    "i128",
     "f32",
     "f64",
 ]);
-export const PRIMITIVE_TYPES = new Set(PRIMITIVE_TYPES_ARRAY);
-export const BITLENGTH_REGEX = /(8|16|32|64)$/;
-export const PRIMITIVE_TYPE_REGEX = new RegExp(`^((?:${PRIMITIVE_TYPES_ARRAY.join("|")})+)(\\[([0-9])?\\])?$`, "i");
+export const SIMPLE_SCHEMA_BASE = new Set(SIMPLE_SCHEMA_BASE_ARRAY);
+export const BITLENGTH_REGEX = /(8|16|32|64|128)$/;
+export const SIMPLE_SCHEMA_BASE_REGEX = new RegExp(`^((?:${SIMPLE_SCHEMA_BASE_ARRAY.join("|")})+)(\\[([0-9]+)?\\])?$`, "i");
 export const textEncoder = new TextEncoder();
 export const textDecoder = new TextDecoder();
 // Math.log(256) -> 5.545177444479562
@@ -35,30 +39,28 @@ export const coder = {
     encodeString: (value) => textEncoder.encode(value),
     decodeString: (x) => textDecoder.decode(new Uint8Array(x)),
 };
-export const getStringCodePoints = (value, guardFn) => {
-    const codepoints = [];
+export const getStringCharCodes = (value, guardFn) => {
+    const charcodes = new Array(value.length).fill(0);
     if (typeof value !== "string")
         throw new TypeError("value must be a string.");
-    if (guardFn) {
+    if (guardFn == null)
         for (let i = 0; i < value.length; i++)
-            codepoints.push(guardFn(value.codePointAt(i) || 0));
-    }
-    else {
+            charcodes[i] = value.charCodeAt(i);
+    else
         for (let i = 0; i < value.length; i++)
-            codepoints.push(value.codePointAt(i) || 0);
-    }
-    return codepoints;
+            charcodes[i] = guardFn(value.charCodeAt(i));
+    return charcodes;
 };
 export const destructureSimpleSchema = (schema) => {
-    const match = schema.match(PRIMITIVE_TYPE_REGEX);
+    const match = schema.match(SIMPLE_SCHEMA_BASE_REGEX);
     if (!match)
-        throw new Error("Invalid struct.");
+        throw new Error("Invalid schema.");
     const [_input, base, array, arrayLength] = match;
     const [_, _byteLength] = base?.match(BITLENGTH_REGEX) || [];
     if (_byteLength == null && base !== "char")
-        throw new Error("Invalid struct.");
-    if (!PRIMITIVE_TYPES.has(base)) {
-        throw new Error(`Unknown primitive type: ${base}`);
+        throw new Error("Invalid schema.");
+    if (!SIMPLE_SCHEMA_BASE.has(base)) {
+        throw new Error(`Unknown simple schema: ${base}`);
     }
     return {
         base: base,

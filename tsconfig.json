@@ -8,10 +8,6 @@
     "moduleResolution": "bundler",
     "types": [],
 
-    "paths": {
-      "@/*": ["./dist/*"]
-    },
-
     "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
